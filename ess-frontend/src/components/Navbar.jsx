@@ -17,6 +17,9 @@ function Navbar() {
   const [currentEmployee, setCurrentEmployee] = useState({});
   const [open, setOpen] = useState(false);
 
+  const [count, setCount] = useState(0)
+  const [notifications, setNotifications] = useState([]);
+
   const handleOpen = () => {
     setOpen(true);
   };
@@ -29,6 +32,39 @@ function Navbar() {
       .get("/employee/getCurrent")
       .then((res) => setCurrentEmployee(res.data))
       .catch((err) => console.log(err));
+
+      const token = localStorage.getItem('jwtToken'); // Replace with your token retrieval logic
+    
+    // Construct the WebSocket URL with the token as a query parameter
+    const socket = new WebSocket(`ws://localhost:8080/ws?token=${encodeURIComponent(token)}`);
+    
+    // Handle connection opening
+    socket.onopen = () => {
+        console.log('Connected to the WebSocket server');
+    };
+
+    // Handle incoming messages
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Notification received:', data);
+        setCount((prev) => prev + 1);
+        setNotifications((prev) => [...prev, data.message]);
+    };
+
+    // Handle connection errors
+    socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+
+    // Handle connection closure
+    socket.onclose = () => {
+        console.log('WebSocket connection closed');
+    };
+
+    // Cleanup on component unmount
+    return () => {
+        socket.close();
+    };
   }, []);
 
   const handleOptionsClick = () => {
@@ -94,8 +130,37 @@ function Navbar() {
     logoutUser();
   };
 
+  const handleClick=async()=>{
+    fetch('http://localhost:8080/api/update-socket', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ count:  count}),
+    })
+      .then((response) => response.text())
+      .then((data) => {
+        console.log(data); // Logs: "Update notification sent to all clients."
+      })
+      .catch((error) => {
+        console.error('Error:', error);
+      });
+    
+  }
+
   return (
     <div className="fixed bg-slate-800 w-full text-gray-400 py-6">
+      <>
+      <button style={{width:"40px",height:"30px"}} type='button' value={count} onClick={handleClick}>{count}</button>
+      <div>
+            <h1>Notifications</h1>
+            <ul>
+                {notifications.map((note, index) => (
+                    <li key={index}>{note}</li>
+                ))}
+            </ul>
+        </div>
+    </>
       <EmployeePersonalDetailsModal
         handleClose={handleClose}
         handleOpen={handleOpen}
