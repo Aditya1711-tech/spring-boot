@@ -18,7 +18,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
     private JwtUtils jwtUtils;
 
     private final Set<WebSocketSession> sessions = Collections.synchronizedSet(new HashSet<>());
-    private final Map<String, String> sessionsForUser = Collections.synchronizedMap(new HashMap<>());
+    private final Map<String, Set<String>> sessionsForUser = Collections.synchronizedMap(new HashMap<>());
     private final Map<String, WebSocketSession> sessionsForSessionId = Collections.synchronizedMap(new HashMap<>());
 
     @Override
@@ -37,7 +37,19 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
         String email = jwtUtils.getEmailFromJwtToken(token);
         sessions.add(session);
-        sessionsForUser.put(email, session.getId());
+        if(sessionsForUser.containsKey(email)){
+            synchronized (sessionsForUser){
+                Set<String> existingSet = sessionsForUser.get(email);
+                existingSet.add(session.getId());
+                sessionsForUser.put(email, existingSet);
+            }
+        }else{
+            synchronized (sessionsForUser){
+                Set<String> newSet = Collections.synchronizedSet(new HashSet<>());
+                newSet.add(session.getId());
+                sessionsForUser.put(email, newSet);
+            }
+        }
         sessionsForSessionId.put(session.getId(), session);
         session.sendMessage(new TextMessage("{\"message\": \"Welcome to the WebSocket server!\"}"));
         System.out.println("Client: " + email + " connected with session id: " + session.getId());
@@ -83,20 +95,22 @@ public class WebSocketHandler extends TextWebSocketHandler {
     }
 
     public void sendMessageToUsers(List<String> userEmails, String message) {
-        synchronized (userEmails){
-            for (String userEmail : userEmails) {
-                String sessionId = sessionsForUser.get(userEmail);
-                WebSocketSession session = sessionsForSessionId.get(sessionId);
+        for (String userEmail : userEmails) {
+            Set<String> sessionIds = sessionsForUser.containsKey(userEmail) ? sessionsForUser.get(userEmail) : Collections.synchronizedSet(new HashSet<>());
+            synchronized (sessionsForUser){
+                for (String sessionId : sessionIds) {
+                    WebSocketSession session = sessionsForSessionId.get(sessionId);
 
-                if (session != null && session.isOpen()) {
-                    try {
-                        session.sendMessage(new TextMessage("{\"message\":\"" + message + "\",\"user\":\"" + userEmail + "\"}"));
-                    } catch (IOException e) {
-                        System.err.println("Failed to send message to user: " + userEmail);
-                        e.printStackTrace();
+                    if (session != null && session.isOpen()) {
+                        try {
+                            session.sendMessage(new TextMessage("{\"message\":\"" + message + "\",\"user\":\"" + userEmail + "\"}"));
+                        } catch (IOException e) {
+                            System.err.println("Failed to send message to user: " + userEmail);
+                            e.printStackTrace();
+                        }
+                    } else {
+                        System.err.println("No active session for user: " + userEmail);
                     }
-                } else {
-                    System.err.println("No active session for user: " + userEmail);
                 }
             }
         }
